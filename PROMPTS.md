@@ -56,3 +56,38 @@ Proceed to phase 2
 Proceed to phase 3
 
 Proceed to phase 4 & 5
+
+---
+
+# 🚀 Sophisticated Post-MVP Upgrades
+
+This section records the advanced security intelligence and UI/UX prompts provided to refine the AESA project.
+
+## 🧠 Sophisticated Intelligence & Metadata
+**Objective**: Elevate the agent from a simple loop to a senior forensic analyst with rich metadata.
+
+> Upgrade the backend "Large Prompt" to define a senior SOC Engineer persona with structured SOPs for triage, analysis, and mitigation. 
+> 
+> **Schema Expansion**:
+> - Add `severity` (high/medium/low) and `threat_type` (SQLi, DDoS, etc.) to the AI output.
+> - Ensure these metadata parameters are broadcasted to the frontend in real-time.
+> - Implement a 3-attempt retry loop with exponential backoff for Workers AI calls to handle platform transient errors.
+
+## 🎨 High-Fidelity Design System
+**Objective**: Transform the terminal into a premium, macOS-style forensic tool.
+
+> Create an aesthetically pleasing macOS terminal with a **Catppuccin Mocha** theme.
+> 
+> **Component Requirements**:
+> - Render threat intelligence metadata (Severity, Threat Type, ASN) as **Pill-shaped Badges** with Mocha-palette backgrounds.
+> - Add a **Pulse Animation** to the current status indicator to show the agent is "thinking."
+> - Implement a **WAF Deployment View** that visualizes the rule generation with a dedicated "DEPLOYED TO EDGE" badge and pulse effects.
+
+## 🛠️ Platform Resilience & Dual-Purpose Sync
+**Objective**: Resolve edge connectivity and platform visibility.
+
+> Implement a **Dual-Purpose Worker**:
+> - Support WebSocket upgrades for the Dashboard.
+> - Support standard HTTP requests for AI diagnostics (returning JSON test results).
+> - Add a **Visual Status Page** (HTML) to the Worker root to confirm system health and provide direct links.
+> - Implement a robust regex-based WebSocket handshake matcher to handle header variations at the Cloudflare edge.
