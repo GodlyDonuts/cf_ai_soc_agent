@@ -22,7 +22,14 @@ type LlmAction = 'check_logs' | 'generate_waf_rule' | 'ask_user';
 type LlmToolOutput = {
   action: LlmAction;
   reasoning: string;
-  parameters: Record<string, unknown>;
+  parameters: {
+    asn?: number;
+    payload?: string;
+    severity?: 'high' | 'medium' | 'low';
+    threat_type?: string;
+    question?: string;
+    [k: string]: unknown;
+  };
 };
 
 function tryParseJsonMessage(message: string | ArrayBuffer): unknown | null {
@@ -110,20 +117,38 @@ export class InvestigationTicket extends DurableObject<Env> {
   }
 
   private buildSystemPrompt(): string {
-    // Must remain a strict instruction for phase 3.
     return [
-      'You are an autonomous Edge Security Agent.',
-      'You MUST ONLY output valid JSON (no markdown, no extra text).',
-      'Your output MUST match this exact JSON shape:',
-      '{"action":"check_logs"|"generate_waf_rule"|"ask_user","reasoning":"...","parameters":{...}}',
+      '# Role: Autonomous Edge Security Analyst (AESA)',
+      'You are a senior SOC Engineer at Cloudflare. Your goal is to investigate, analyze, and neutralize web-borne threats in real-time.',
       '',
-      'Rules:',
-      '- If you need evidence, set "action" to "check_logs".',
-      '- If you have enough evidence to mitigate, set "action" to "generate_waf_rule".',
-      '- If information is missing, set "action" to "ask_user" and ask for exactly one question in parameters.question.',
-      '- When generating a WAF rule, set parameters.asn (number) and parameters.payload (string).',
+      '# Environment:',
+      '- You have access to `check_logs` (retrieves edge request logs).',
+      '- You have access to `generate_waf_rule` (deploys a Cloudflare WAF Custom Rule).',
+      '- You have access to `ask_user` (clarification).',
       '',
-      'Cloudflare WAF rule generation must target the specific ASN and the SQLi payload evidence (e.g., "UNION SELECT").',
+      '# Investigative SOP (Standard Operating Procedure):',
+      '1. Triage: Analyze the initial symptom reported by the user.',
+      '2. Evidence Gathering: If you lack specific ASN or payload evidence, call `check_logs`.',
+      '3. Analysis: Identify the attack pattern (SQLi, XSS, DDoS, Credential Stuffing, etc.).',
+      '4. Neutralization: Generate a precise WAF rule. Target ONLY the specific malicious pattern reported in the evidence.',
+      '5. Reporting: Provide a clear technical reasoning in your response.',
+      '',
+      '# Guidelines:',
+      '- You MUST ONLY output valid JSON (no markdown, no extra text).',
+      '- Your output MUST match this exact JSON shape:',
+      '  {',
+      '    "action": "check_logs" | "generate_waf_rule" | "ask_user",',
+      '    "reasoning": "...",',
+      '    "parameters": {',
+      '      "asn": number,',
+      '      "payload": "string",',
+      '      "severity": "high" | "medium" | "low",',
+      '      "threat_type": "sql_injection" | "ddos" | "cross_site_scripting" | "other",',
+      '      "question": "string (only if action is ask_user)"',
+      '    }',
+      '  }',
+      '',
+      '- Cloudflare WAF rule generation must target the specific ASN and the SQLi payload evidence (e.g., "UNION SELECT").',
     ].join('\n');
   }
 
@@ -176,7 +201,7 @@ export class InvestigationTicket extends DurableObject<Env> {
     const systemPrompt = this.buildSystemPrompt();
     const userPrompt = this.buildUserPrompt(symptom, includeLogs, mockLogs);
 
-    const model = '@cf/meta/llama-3.1-8b-instruct';
+    const model = '@cf/meta/llama-3-8b-instruct';
 
     let result: any;
     let lastError: Error | null = null;
@@ -189,7 +214,6 @@ export class InvestigationTicket extends DurableObject<Env> {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
-          response_format: { type: 'json_object' },
           temperature: 0.2,
           max_tokens: 512,
         });
@@ -246,7 +270,7 @@ export class InvestigationTicket extends DurableObject<Env> {
     return {
       action,
       reasoning,
-      parameters: parameters as Record<string, unknown>,
+      parameters: parameters as LlmToolOutput['parameters'],
     };
   }
 
@@ -278,6 +302,7 @@ export class InvestigationTicket extends DurableObject<Env> {
         step: llmStep,
         message: llmOutput.reasoning,
         action: llmOutput.action,
+        parameters: llmOutput.parameters,
       });
 
       if (llmOutput.action === 'check_logs') {
@@ -488,10 +513,38 @@ export default {
       }
     }
 
-    return new Response(
-      'This endpoint only supports websocket upgrades. Connect with `Upgrade: websocket`.',
-      { status: 426 },
-    );
+    // Default HTTP handler (AI platform test)
+    const tasks = [];
+    const model = '@cf/meta/llama-3-8b-instruct';
+
+    try {
+      // prompt - simple completion style input
+      let simple = {
+        prompt: 'Tell me a joke about Cloudflare',
+      };
+      let response1 = await env.AI.run(model as any, simple);
+      tasks.push({ inputs: simple, response: response1 });
+
+      // messages - chat style input
+      let chat = {
+        messages: [
+          { role: 'system', content: 'You are a helpful assistant.' },
+          { role: 'user', content: 'Who won the world series in 2020?' },
+        ],
+      };
+      let response2 = await env.AI.run(model as any, chat);
+      tasks.push({ inputs: chat, response: response2 });
+
+      return Response.json(tasks);
+    } catch (err) {
+      return new Response(
+        JSON.stringify({
+          error: 'AI test failure',
+          message: err instanceof Error ? err.message : String(err),
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
   },
 };
 
