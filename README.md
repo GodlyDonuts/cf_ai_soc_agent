@@ -2,6 +2,8 @@
 
 An intelligent, autonomous security orchestration and response (SOAR) agent running entirely on the Cloudflare Edge. AESA leverages **Cloudflare Workers AI**, **Durable Objects**, and **WebSockets** to investigate threats and deploy mitigations in real-time.
 
+**Hosted at:** [https://soc-agent.csramineni.workers.dev/](https://soc-agent.csramineni.workers.dev/)
+
 ![SOC Dashboard Status](https://img.shields.io/badge/Status-Operational-brightgreen?style=for-the-badge&logo=cloudflare)
 ![Tech Stack](https://img.shields.io/badge/Stack-React_|_Workers_|_Llama_3.3-blue?style=for-the-badge)
 
