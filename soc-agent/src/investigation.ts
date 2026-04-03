@@ -13,6 +13,24 @@ export function tryParseJsonMessage(message: string | ArrayBuffer): unknown | nu
   }
 }
 
+function extractFirstJsonObject(text: string): unknown | null {
+  const trimmed = text.trim();
+  const withoutFences = trimmed
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/, '');
+
+  const direct = tryParseJsonMessage(withoutFences);
+  if (direct && typeof direct === 'object') return direct;
+
+  const firstBrace = withoutFences.indexOf('{');
+  const lastBrace = withoutFences.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return tryParseJsonMessage(withoutFences.slice(firstBrace, lastBrace + 1));
+  }
+  return null;
+}
+
 function escapeWafLiteral(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
@@ -159,10 +177,18 @@ export async function queryLlmNextAction(
         : (result as { response?: unknown })?.response ?? result;
 
   const maybeParsed =
-    typeof raw === 'string' && raw.length > 0 ? tryParseJsonMessage(raw) : raw;
+    typeof raw === 'string' && raw.length > 0 ? extractFirstJsonObject(raw) : raw;
 
   if (!maybeParsed || typeof maybeParsed !== 'object') {
-    throw new Error('LLM response was not valid JSON or object.');
+    // Fail open to evidence gathering rather than hard-failing the workflow.
+    return {
+      action: 'check_logs',
+      reasoning: 'Model output was not parseable JSON; defaulting to log evidence collection.',
+      parameters: {
+        timeframe: 'last_hour',
+        suspicious_keyword: 'UNION',
+      },
+    };
   }
 
   const parsed = maybeParsed as Record<string, unknown>;
@@ -176,7 +202,14 @@ export async function queryLlmNextAction(
     typeof parameters !== 'object' ||
     parameters === null
   ) {
-    throw new Error('LLM JSON did not match required schema.');
+    return {
+      action: 'check_logs',
+      reasoning: 'Model JSON schema mismatch; defaulting to log evidence collection.',
+      parameters: {
+        timeframe: 'last_hour',
+        suspicious_keyword: 'UNION',
+      },
+    };
   }
 
   return {

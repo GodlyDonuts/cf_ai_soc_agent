@@ -18,16 +18,17 @@ export class InvestigationWorkflow extends WorkflowEntrypoint<SocEnv, Investigat
     step: CloudflareWorkersModule.WorkflowStep,
   ): Promise<Record<string, unknown> | null> {
     const { ticketId, symptom } = event.payload;
+    try {
 
-    const sopContext = (await step.do('rag_retrieve_sops', async () => {
-      return (await retrieveSopContext(this.env, symptom)) as any;
-    })) as string;
+      const sopContext = (await step.do('rag_retrieve_sops', async () => {
+        return (await retrieveSopContext(this.env, symptom)) as any;
+      })) as string;
 
-    await notifyTicket(this.env, ticketId, {
-      step: 'workflow',
-      message: 'Retrieved relevant SOP context from Vectorize.',
-      meta: { sopPreview: sopContext.slice(0, 200) },
-    });
+      await notifyTicket(this.env, ticketId, {
+        step: 'workflow',
+        message: 'Retrieved relevant SOP context from Vectorize.',
+        meta: { sopPreview: sopContext.slice(0, 200) },
+      });
 
     let includeLogs = false;
     let logText: string | null = null;
@@ -55,6 +56,7 @@ export class InvestigationWorkflow extends WorkflowEntrypoint<SocEnv, Investigat
         })) as Awaited<ReturnType<typeof queryHttpLogsFromD1>>;
 
         const formatted = formatLogRowsForLlm(d1Result.rows);
+        lastRows = d1Result.rows;
         lastEvidenceJson = JSON.stringify(d1Result.summary);
         logText = formatted;
         includeLogs = true;
@@ -110,10 +112,18 @@ export class InvestigationWorkflow extends WorkflowEntrypoint<SocEnv, Investigat
       return wafRule;
     }
 
-    await notifyTicket(this.env, ticketId, {
-      step: 'error',
-      message: 'Investigation did not converge within the iteration limit.',
-    });
-    return null;
+      await notifyTicket(this.env, ticketId, {
+        step: 'error',
+        message: 'Investigation did not converge within the iteration limit.',
+      });
+      return null;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await notifyTicket(this.env, ticketId, {
+        step: 'error',
+        message: `Workflow failed: ${message}`,
+      });
+      throw err;
+    }
   }
 }
