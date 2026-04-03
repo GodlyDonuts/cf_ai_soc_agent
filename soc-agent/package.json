@@ -8,7 +8,8 @@
     "build": "wrangler build",
     "deploy": "wrangler deploy",
     "types": "wrangler types",
-    "test": "vitest run"
+    "test": "vitest run",
+    "seed:d1": "node scripts/generate-d1-seed.mjs && wrangler d1 execute soc-logs --remote --file=./seed.sql"
   },
   "keywords": [],
   "author": "",

@@ -1,84 +1,118 @@
 # Autonomous Edge Security Agent (AESA)
 
-An intelligent, autonomous security orchestration and response (SOAR) agent running entirely on the Cloudflare Edge. AESA leverages **Cloudflare Workers AI**, **Durable Objects**, and **WebSockets** to investigate threats and deploy mitigations in real-time.
+An autonomous security investigation pipeline on the Cloudflare developer platform. AESA combines **Workers AI (Llama 3.3)**, **Cloudflare Workflows**, **Durable Objects**, **D1**, **Vectorize**, **KV**, and a **React** dashboard with **WebSockets** for live updates.
 
 **Hosted at:** [https://soc-agent.csramineni.workers.dev/](https://soc-agent.csramineni.workers.dev/)
 
 ![SOC Dashboard Status](https://img.shields.io/badge/Status-Operational-brightgreen?style=for-the-badge&logo=cloudflare)
 ![Tech Stack](https://img.shields.io/badge/Stack-React_|_Workers_|_Llama_3.3-blue?style=for-the-badge)
 
-## 🏗️ Architecture
+## Architecture
 
-### 1. The Autonomous Backend (`/soc-agent`)
-A dual-purpose Cloudflare Worker that serves as the "brain" of the operation.
-- **Agentic Loop**: Implements a ReAct (Reasoning + Acting) loop using **Llama 3.3** to autonomously analyze security symptoms.
-- **Stateful Forensics**: Uses **Durable Objects** (`InvestigationTicket`) to maintain the context of a security incident across multiple AI reasoning steps.
-- **Dual-Purpose Interface**:
-  - **WebSocket (WSS)**: Streams real-time "thinking" and "action" steps to the forensic dashboard.
-  - **HTTP (HTTPS)**: Provides a professional System Status page and AI diagnostic tools.
+### Backend (`soc-agent/`)
 
-### 2. The Forensic Dashboard (`/frontend`)
-A high-fidelity, terminal-style interface built with **React**, **Tailwind CSS**, and the **Catppuccin Mocha** design system.
-- **Real-time Streaming**: Renders the agent's internal monologue and forensic findings as they happen.
-- **Threat Intelligence Badges**: Automatically extracts and displays `Severity`, `Threat Type`, and `ASN` metadata from AI findings.
-- **WAF Deployment UI**: Visualizes the generation and deployment of Cloudflare WAF rules with smooth pulse animations.
+| Layer | Role |
+| --- | --- |
+| **Durable Object** (`InvestigationTicket`) | WebSocket sessions, ticket id from the upgrade URL, broadcast to clients. Starts a **Workflow** when a symptom is received. |
+| **Workflow** (`InvestigationWorkflow`) | Durable multi-step run: RAG → LLM tool loop → **D1** log queries → WAF rule → **KV** enforcement keys. Survives timeouts better than a long `for` loop in a DO. |
+| **Workers AI** | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` for JSON tool decisions; `@cf/baai/bge-small-en-v1.5` for embeddings (Vectorize + symptom). |
+| **D1** | `http_logs` table: synthetic edge request rows. `check_logs` runs real SQL (timeframe, keyword, optional ASN). |
+| **Vectorize** | SOP snippets embedded and queried for retrieval-augmented prompts. |
+| **KV** (`ACTIVE_BLOCKS`) | On finalize, stores `asn:<id>` / `ip:<addr>` for optional enforcement. |
+| **HTTP** | Status page, `/health`, `/?test=ai` diagnostics. |
 
-## 🚀 Getting Started
+### Enforcement worker (`enforcement-worker/`)
 
-### Prerequisites
+A small separate Worker that reads the same **KV** namespace and returns **403** when the request’s `cf-connecting-ip` or ASN matches a stored block. Deploy it on its own route or `*.workers.dev` to demo end-to-end blocking.
+
+### Frontend (`frontend/`)
+
+React + Tailwind + **Catppuccin Mocha**: terminal-style UI, live WebSocket stream, WAF rule display.
+
+## Prerequisites
+
 - Node.js 18+
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-upgrading/) installed and authenticated (`wrangler login`).
-- A Cloudflare account with Workers AI and Durable Objects enabled.
+- [Wrangler](https://developers.cloudflare.com/workers/wrangler/install-upgrading/) (`wrangler login`)
+- Cloudflare: Workers AI, Durable Objects, D1, KV, Vectorize, and Workflows available on your account
 
-### Local Development
+## Local development
 
-1. **Clone and Install**
+1. **Clone and install (monorepo)**
+
    ```bash
    git clone <repository-url>
    cd cf_ai_soc_agent
+   npm install
    ```
 
-2. **Start the Backend**
+2. **Backend**
+
    ```bash
    cd soc-agent
-   npm install
    npx wrangler dev
    ```
-   *The backend will run on `http://localhost:8787`.*
 
-3. **Start the Frontend**
+   Default: `http://localhost:8787`. Create D1/KV/Vectorize resources and bind IDs in `wrangler.jsonc` if you have not already (`wrangler d1 create`, `wrangler kv namespace create`, `wrangler vectorize create`, etc.).
+
+3. **Seed local D1 (optional)**
+
+   After applying migrations:
+
+   ```bash
+   cd soc-agent
+   npx wrangler d1 migrations apply soc-logs --local
+   node scripts/generate-d1-seed.mjs
+   npx wrangler d1 execute soc-logs --local --file=./seed.sql
+   ```
+
+   `seed.sql` is generated and listed in `.gitignore`. For **remote** D1: `npm run seed:d1` (applies the generated seed to the remote database).
+
+4. **Frontend**
+
    ```bash
    cd ../frontend
-   npm install
-   # Create a .env file
    echo "VITE_BACKEND_WS_URL=ws://localhost:8787" > .env
    npm run dev
    ```
-   *The dashboard will be available at `http://localhost:5173`.*
 
-## 🌍 Deployment
+   Open `http://localhost:5173`.
 
-### 1. Backend (Workers)
+## Deployment
+
+### Main Worker + workflow
+
 ```bash
 cd soc-agent
 npx wrangler deploy
 ```
 
-### 2. Frontend (Pages)
+### Frontend (Pages)
+
 ```bash
 cd frontend
 npm run build
 npx wrangler pages deploy dist --project-name soc-agent-dashboard
 ```
-> [!TIP]
-> Ensure the `VITE_BACKEND_WS_URL` is set to your production Worker URL (e.g., `wss://soc-agent.<user>.workers.dev`) during the build process.
 
-## 🧠 Sophisticated Intelligence
-AESA is governed by a **Senior SOC Engineer Persona** that follows a strict Standard Operating Procedure (SOP):
-1. **Triage**: Extracting key indicators (IPs, ASNs, User-Agents) from reports.
-2. **Analysis**: Correlating symptoms with edge logs (SQLi, DDoS, Credential Stuffing).
-3. **Mitigation**: Generating precise, JSON-formatted Cloudflare WAF rules to block identified threats.
-4. **Verification**: Confirming the effectiveness of the proposed rule before finalizing.
+Set `VITE_BACKEND_WS_URL` to your production Worker WebSocket URL (e.g. `wss://soc-agent.<user>.workers.dev`) when building for production.
 
-## 📄 License
+### Enforcement Worker
+
+```bash
+cd enforcement-worker
+npm install
+npx wrangler deploy
+```
+
+Use the same KV namespace IDs as in `soc-agent/wrangler.jsonc` so blocks written by the SOC agent are visible here.
+
+## Investigation flow (high level)
+
+1. User submits a symptom over WebSocket.
+2. DO stores the ticket id and starts **InvestigationWorkflow**.
+3. Workflow retrieves **Vectorize** SOP context, then loops: **LLM** → optional **D1** `check_logs` with real rows → **WAF rule** from evidence + parameters → **KV** keys for enforcement.
+4. The DO streams each step back to the UI.
+
+## License
+
 MIT. Built for the Cloudflare AI SOC Agent Internship.

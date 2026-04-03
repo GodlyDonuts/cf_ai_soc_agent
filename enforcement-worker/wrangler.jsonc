@@ -1,0 +1,12 @@
+{
+	"name": "soc-enforcement",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-04-03",
+	"kv_namespaces": [
+		{
+			"binding": "ACTIVE_BLOCKS",
+			"id": "aefb51fec50d41a3a3b058afd6a45b11",
+			"preview_id": "1533ecb7124245bd837d4e9cc18493af"
+		}
+	]
+}

@@ -139,3 +139,6 @@ dist-ssr/
 # Cloudflare Wrangler
 .wrangler/
 worker-configuration.d.ts
+
+# Generated D1 bulk seed (regenerate with node scripts/generate-d1-seed.mjs)
+soc-agent/seed.sql

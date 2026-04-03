@@ -3,7 +3,8 @@
   "private": true,
   "workspaces": [
     "soc-agent",
-    "frontend"
+    "frontend",
+    "enforcement-worker"
   ],
   "scripts": {
     "test": "npm run test -w soc-agent && npm run test -w frontend",
