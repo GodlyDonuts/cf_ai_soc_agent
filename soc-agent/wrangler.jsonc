@@ -39,12 +39,7 @@
 	"vectorize": [
 		{
 			"binding": "VECTORIZE",
-			"index_name": "soc-sop-index"
-		},
-		{
-			"binding": "VECTORIZE",
-			"index_name": "soc-sops",
-			"remote": true
+			"index_name": "soc-sops"
 		}
 	],
 	"workflows": [
