@@ -20,18 +20,10 @@ export default function App() {
 
   const wsRef = useRef<WebSocket | null>(null)
 
-  const wsBaseCandidates = useMemo(() => {
-    const configured = import.meta.env.VITE_BACKEND_WS_URL as
-      | string
-      | undefined
-    if (configured && configured.trim().length > 0) return [configured.trim()]
-
-    const currentProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const sameOrigin = `${currentProtocol}//${window.location.host}`
-
-    // Fallbacks when an explicit backend URL was not provided at build time.
-    return [sameOrigin, 'wss://soc-agent.csramineni.workers.dev']
-  }, [])
+  const wsBaseCandidates = useMemo(
+    () => ['wss://soc-agent.csramineni.workers.dev'],
+    [],
+  )
 
   const connectionTimeoutMs = 8000
 
