@@ -1,78 +1,217 @@
-Project: cf_ai_soc_agent (Autonomous Edge Security Agent)
-Context & Goal
-You are an expert full-stack developer specializing in the Cloudflare developer ecosystem (Workers, Pages, Workers AI, Durable Objects, and WebSockets).
-I am applying for a Software Engineering Internship at Cloudflare. I need to build a highly impressive AI-powered application that goes beyond a simple chatbot.
+## Project: Autonomous Edge Security Agent (`cf_ai_soc_agent`)
 
-We are building an "Autonomous Edge Security Agent". When a user reports a website issue (e.g., "We are getting a lot of weird traffic from unknown IPs"), the application will use an Agentic loop (ReAct) to investigate the issue, simulate checking logs, and automatically generate a Cloudflare WAF rule to mitigate the threat.
+This app runs an **agentic investigation loop** on the Cloudflare edge. A **Durable Object** keeps per-ticket state and streams each step (over **WebSockets**) to a terminal-style SOC dashboard.
 
-Required Architecture & Tech Stack
-Frontend (Dashboard): Cloudflare Pages hosting a Vite + React + Tailwind CSS dashboard. It should look like a dark-themed terminal or security command center, showing real-time updates as the AI "thinks" and "acts."
+In the demo environment, the backend simulates log evidence (including an SQLi spike with the `UNION SELECT` payload from ASN `13335`) and finally generates a **Cloudflare WAF rule object** in strict JSON.
 
-Backend (Agent Orchestration): Cloudflare Workers.
+## Architecture
 
-AI (LLM with Tool Calling): Cloudflare Workers AI using the @cf/meta/llama-3.3-70b-instruct-fp8-fast model. We will force the model to output strict JSON to simulate tool calling.
+1. **Frontend** (`/frontend`)
+   - Vite + React dashboard
+   - WebSocket client renders `step` events sequentially
+   - Final WAF rule rendered as JSON in a highlighted block
 
-State/Memory & Real-time: Cloudflare Durable Objects + WebSockets. The Durable Object manages the state of the "Investigation Ticket" and uses WebSockets to stream the AI's step-by-step investigation process back to the frontend in real-time.
+2. **Backend** (`/backend`)
+   - Worker + Durable Object `InvestigationTicket`
+   - WebSocket endpoint:
+     - `Upgrade: websocket` requests are routed to a ticket by `?ticketId=<uuid>`
+     - client sends the initial message: `{ "symptom": "<string>" }`
+   - Durable Object:
+     - persists investigation history in `this.ctx.storage`
+     - streams status updates via `broadcast(data: object)`
+     - runs the ReAct-like loop using **Workers AI** in JSON mode
 
-Project Constraints & File Structure
-The repository MUST be prefixed with cf_ai_ (e.g., cf_ai_soc_agent).
+## Prerequisites
 
-The project must use a monorepo structure:
+- Node.js 18+
+- Wrangler installed (`npm i -g wrangler`)
+- `wrangler login`
+- Cloudflare account with Workers AI and Durable Objects enabled
 
-/frontend (Vite/React/Pages app)
+## Local development
 
-/backend (Worker/Durable Object)
+Open two terminals.
 
-Generate a README.md with clear instructions on how to run this locally (wrangler dev) and deploy it.
+### Backend (Workers + Durable Object)
+```bash
+cd backend
+npm install
+wrangler dev
+```
 
-Generate a PROMPTS.md file tracking our prompts.
+`wrangler dev` serves the Worker on `http://localhost:8787` by default (WebSocket: `ws://localhost:8787`).
 
-Step-by-Step Implementation Plan
-Please acknowledge this plan and ask my permission to begin Step 1. We will go step-by-step. Do not generate code for future steps until instructed.
+### Frontend (Vite)
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-Step 1: Project Setup & Scaffolding
-Initialize the /frontend (Vite + React) and /backend directories.
+### Connect frontend -> backend (WebSocket URL)
 
-Create the wrangler.jsonc in the /backend with bindings for Workers AI (AI) and a Durable Object class (InvestigationTicket).
+Because the frontend dev server runs on a different origin than the Worker, configure:
 
-Provide the exact terminal commands needed to scaffold this setup.
+Create `frontend/.env`:
+```bash
+VITE_BACKEND_WS_URL=ws://localhost:8787
+```
 
-Step 2: Implement the Durable Object with WebSockets
-In /backend/src/index.ts, implement the standard Worker fetch handler that routes WebSocket upgrade requests to the InvestigationTicket Durable Object.
+The frontend will connect to:
+`ws(s)://<backend>/?ticketId=<uuid>`
 
-Implement the Durable Object class. It must:
+## Production deployment
 
-Handle the Upgrade header and accept the WebSocket connection.
+### 1) Deploy the backend Worker
+```bash
+cd backend
+npm install
+wrangler deploy
+```
 
-Listen for an initial JSON message containing the user's reported symptom.
+### 2) Deploy the frontend to Cloudflare Pages
+```bash
+cd frontend
+npm install
+npm run build
 
-Store the connection and investigation history in this.ctx.storage.
+# Example: deploy the generated Vite output
+# (adjust project/branch names to your Pages setup)
+wrangler pages deploy dist --project-name <YOUR_PAGES_PROJECT> --branch main
+```
 
-Expose a helper function broadcast(data: object) to stream status updates back to the client (e.g., {"step": "thinking", "message": "Analyzing report..."}).
+### 3) Configure the Pages build to point at your deployed Worker
 
-Step 3: Implement the Agentic Loop with Workers AI
-Inside the Durable Object, write an async runInvestigation(symptom) function.
+You provided:
+`https://soc-agent.csramineni.workers.dev/`
 
-Create a strict System Prompt instructing Llama 3.3 to ONLY output JSON in this format: {"action": "check_logs" | "generate_waf_rule" | "ask_user", "reasoning": "...", "parameters": {...}}.
+Set `VITE_BACKEND_WS_URL` during the frontend build (no trailing slash):
+```bash
+VITE_BACKEND_WS_URL=wss://soc-agent.csramineni.workers.dev
+```
 
-Implement a simulated environment loop:
+## Agent behavior (demo)
 
-If the LLM outputs check_logs, the backend injects mock log data (specifically: simulate a spike in SQL injection attempts containing UNION SELECT from ASN 13335).
+The agentic loop alternates between:
 
-Feed the mock logs back to the LLM.
+- `check_logs`: backend injects mock evidence (SQLi attempts containing `UNION SELECT` from ASN `13335`)
+- `generate_waf_rule`: backend returns a JSON object representing a Cloudflare WAF rule that blocks that evidence pattern
+- `ask_user`: would request missing info (in this demo path it should usually converge automatically)
 
-Loop until the LLM outputs generate_waf_rule, returning a JSON representation of a Cloudflare WAF rule targeting the specific ASN or payload.
+Each loop step is streamed live to the dashboard.
 
-Step 4: Implement the Frontend (The SOC Dashboard)
-Build the React frontend in /frontend.
+## Repository layout
 
-Create a dark-themed UI (using Tailwind) with an input bar for reporting issues.
+- `frontend/` - Vite + React + catppuccin terminal dashboard
+- `backend/` - Workers + Durable Object + Workers AI + WebSockets
 
-Implement a WebSocket client that connects to the backend Worker.
+## Project: Autonomous Edge Security Agent (`cf_ai_soc_agent`)
 
-Create a "Terminal" component that displays the WebSocket stream of the AI's actions sequentially. Make it Ascetically pleasing to look at, macOS terminal with a catpucchino theme.
+This app runs an **agentic investigation loop** on the Cloudflare edge. A **Durable Object** keeps per-ticket state and streams each step (over **WebSockets**) to a terminal-style SOC dashboard.
 
-When the final WAF rule is received, display it in a highlighted code block.
+In the demo environment, the backend simulates log evidence (including an SQLi spike with the `UNION SELECT` payload from ASN `13335`) and finally generates a **Cloudflare WAF rule object** in strict JSON.
 
-Step 5: Documentation
-Generate a comprehensive README.md explaining the Agentic architecture, the ReAct loop, how it leverages Edge compute for security, and how to run it locally.
+## Architecture
+
+1. **Frontend** (`/frontend`)
+   - Vite + React dashboard
+   - WebSocket client renders `step` events sequentially
+   - Final WAF rule rendered as JSON in a highlighted block
+
+2. **Backend** (`/backend`)
+   - Worker + Durable Object `InvestigationTicket`
+   - WebSocket endpoint:
+     - `Upgrade: websocket` requests are routed to a ticket by `?ticketId=<uuid>`
+     - client sends the initial message: `{ "symptom": "<string>" }`
+   - Durable Object:
+     - persists investigation history in `this.ctx.storage`
+     - streams status updates via `broadcast(data: object)`
+     - runs the ReAct-like loop using **Workers AI** in JSON mode
+
+## Prerequisites
+
+- Node.js 18+
+- Wrangler installed (`npm i -g wrangler`)
+- `wrangler login`
+- Cloudflare account with Workers AI and Durable Objects enabled
+
+## Local development
+
+Open two terminals.
+
+### Backend (Workers + Durable Object)
+```bash
+cd backend
+npm install
+wrangler dev
+```
+
+`wrangler dev` serves the Worker on `http://localhost:8787` by default (WebSocket: `ws://localhost:8787`).
+
+### Frontend (Vite)
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Connect frontend -> backend (WebSocket URL)
+
+Because the frontend dev server runs on a different origin than the Worker, configure:
+
+Create `frontend/.env`:
+```bash
+VITE_BACKEND_WS_URL=ws://localhost:8787
+```
+
+The frontend will connect to:
+`ws(s)://<backend>/ ?ticketId=<uuid>`
+
+## Production deployment
+
+### 1) Deploy the backend Worker
+```bash
+cd backend
+npm install
+wrangler deploy
+```
+
+### 2) Deploy the frontend to Cloudflare Pages
+```bash
+cd frontend
+npm install
+npm run build
+
+# Example: deploy the generated Vite output
+# (adjust project/branch names to your Pages setup)
+wrangler pages deploy dist --project-name <YOUR_PAGES_PROJECT> --branch main
+```
+
+### 3) Configure the Pages build to point at your deployed Worker
+
+You provided:
+`https://soc-agent.csramineni.workers.dev/`
+
+Set `VITE_BACKEND_WS_URL` during the frontend build (no trailing slash):
+```bash
+VITE_BACKEND_WS_URL=wss://soc-agent.csramineni.workers.dev
+```
+
+## Agent behavior (demo)
+
+The agentic loop alternates between:
+
+- `check_logs`: backend injects mock evidence (SQLi attempts containing `UNION SELECT` from ASN `13335`)
+- `generate_waf_rule`: backend returns a JSON object representing a Cloudflare WAF rule that blocks that evidence pattern
+- `ask_user`: would request missing info (in this demo path it should usually converge automatically)
+
+Each loop step is streamed live to the dashboard.
+
+## Repository layout
+
+- `frontend/` - Vite + React + catppuccin terminal dashboard
+- `backend/` - Workers + Durable Object + Workers AI + WebSockets
+
+ 
+
+ 

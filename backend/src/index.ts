@@ -3,6 +3,8 @@
 // - Durable Object accepts the socket, persists connection + history in `this.ctx.storage`,
 //   and streams status updates back to the client via `broadcast()`.
 
+import { DurableObject } from 'cloudflare:workers'
+
 export interface Env {
   AI: Ai;
   INVESTIGATION_TICKET: DurableObjectNamespace<InvestigationTicket>;
@@ -174,34 +176,63 @@ export class InvestigationTicket extends DurableObject<Env> {
     const systemPrompt = this.buildSystemPrompt();
     const userPrompt = this.buildUserPrompt(symptom, includeLogs, mockLogs);
 
-    const model = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+    const model = '@cf/meta/llama-3.1-8b-instruct';
 
-    const result = await this.env.AI.run(model, {
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.2,
-      max_tokens: 512,
-    });
+    let result: any;
+    let lastError: Error | null = null;
+    const maxRetries = 3;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        result = await this.env.AI.run(model as any, {
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.2,
+          max_tokens: 512,
+        });
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        console.warn(`AI attempt ${attempt} failed: ${lastError.message}`);
+        if (attempt < maxRetries) {
+          // Exponential backoff
+          await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+        }
+      }
+    }
+
+    if (lastError) {
+      throw new Error(`Inference persistently failed after ${maxRetries} attempts: ${lastError.message}`);
+    }
+
+    console.log('Raw LLM result:', JSON.stringify(result, null, 2));
 
     const raw =
       typeof result === 'string'
         ? result
         : typeof (result as any)?.response === 'string'
           ? (result as any).response
-          : (result as any)?.response ?? '';
+          : (result as any)?.response ?? result;
 
-    const parsed = typeof raw === 'string' && raw.length > 0 ? tryParseJsonMessage(raw) : null;
-    if (!parsed) {
-      throw new Error('LLM response was not valid JSON.');
+    const maybeParsed =
+      typeof raw === 'string' && raw.length > 0 ? tryParseJsonMessage(raw) : raw;
+
+    console.log('Parsed LLM response:', JSON.stringify(maybeParsed, null, 2));
+
+    if (!maybeParsed || typeof maybeParsed !== 'object') {
+      throw new Error('LLM response was not valid JSON or object.');
     }
 
+    const parsed = maybeParsed as any;
+
     // Minimal runtime validation to keep the loop safe.
-    const action = (parsed as any).action;
-    const reasoning = (parsed as any).reasoning;
-    const parameters = (parsed as any).parameters;
+    const action = parsed.action;
+    const reasoning = parsed.reasoning;
+    const parameters = parsed.parameters;
 
     if (
       (action !== 'check_logs' && action !== 'generate_waf_rule' && action !== 'ask_user') ||
@@ -377,6 +408,7 @@ export class InvestigationTicket extends DurableObject<Env> {
 
       this.ctx.waitUntil(
         this.runInvestigation(symptom).catch(async (err) => {
+          console.error('Investigation loop error:', err);
           await this.appendHistory({
             ts: Date.now(),
             step: 'runInvestigation_error',
@@ -432,6 +464,28 @@ export default {
       const ticketId = url.searchParams.get('ticketId') ?? 'default';
       const id = env.INVESTIGATION_TICKET.idFromName(ticketId);
       return env.INVESTIGATION_TICKET.get(id).fetch(request);
+    }
+
+    if (url.pathname === '/health') {
+      try {
+        const result = await env.AI.run('@cf/baai/bge-small-en-v1.5', {
+          text: ['Hello'],
+        });
+        return new Response(JSON.stringify({ status: 'ok', result }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            status: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          }),
+          {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
     }
 
     return new Response(
