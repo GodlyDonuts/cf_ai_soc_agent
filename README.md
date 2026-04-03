@@ -7,7 +7,89 @@ An autonomous security investigation pipeline on the Cloudflare developer platfo
 ![SOC Dashboard Status](https://img.shields.io/badge/Status-Operational-brightgreen?style=for-the-badge&logo=cloudflare)
 ![Tech Stack](https://img.shields.io/badge/Stack-React_|_Workers_|_Llama_3.3-blue?style=for-the-badge)
 
+## What this program does
+
+AESA is a **demo SOC-style agent** that runs entirely on Cloudflare. You type a **symptom** in the dashboard (for example, suspicion of SQL injection, odd traffic from an ASN, or abuse on a path). The backend **investigates that report**: it can **pull evidence from a real D1 table** of synthetic HTTP request logs, **reason about what it sees**, and **emit a WAF-oriented mitigation** (JSON rule) plus optional **KV block keys** so a separate enforcement worker can **403** matching IPs or ASNs. The UI streams each step over **WebSockets** so you see triage, log hits, and the final rule as they happen.
+
+## How tool calling finds malicious traffic
+
+This repo does **not** use a vendor `tools` / `function_call` API. Instead, **Llama 3.3 is prompted to return only JSON** each turn, with an `action` field the workflow treats as the **next tool**:
+
+| `action` | What runs in code | Role in finding or stopping malicious behavior |
+| --- | --- | --- |
+| `check_logs` | **D1 SQL** on `http_logs` using parameters such as `timeframe` (`last_10_mins`, `last_hour`, `last_24h`), `suspicious_keyword` (e.g. `UNION`, `script`), and optional `asn`. | Surfaces **concrete rows**: timestamps, source ASN/IP, `threat_type`, request path/body snippets, **signatures**, and an `is_malicious` flag—so the model works from **queried evidence**, not a canned string. |
+| `generate_waf_rule` | Builds a **Cloudflare WAF–style rule** (expression + metadata) from LLM **parameters** and from **aggregated log evidence** (e.g. dominant ASN, payload/signature). Then writes **`asn:` / `ip:`** entries to **KV** for enforcement. | Turns confirmed indicators into a **narrow block** (ASN + dangerous substring in URI/body) and optional **live blocking** via the enforcement worker. |
+| `ask_user` | Broadcasts a **clarifying question** to the client when the symptom is ambiguous. | Avoids guessing before querying logs. |
+
+**Retrieval (RAG):** The workflow **embeds the symptom**, queries **Vectorize** for short **SOP** passages (SQLi, XSS, DDoS, etc.), and injects them into the system prompt. That nudges the model toward **playbook-consistent** keywords and sequencing (e.g. gather logs before blocking).
+
+**Typical loop:** The workflow may execute **`check_logs` → read rows back into the next LLM turn → repeat** with sharper keywords, then **`generate_waf_rule`** once there is evidence—i.e. a simple **reason → query → observe → reason** loop without hardcoded attack strings in application code.
+
 ## Architecture
+
+```mermaid
+flowchart TD
+    U[User in React Dashboard] -->|WebSocket symptom| DO[Durable Object: InvestigationTicket]
+    DO -->|start workflow with ticketId + symptom| WF[Cloudflare Workflow: InvestigationWorkflow]
+    WF --> RAG[Vectorize SOP Retrieval]
+    RAG --> LLM[Workers AI: Llama 3.3]
+    LLM -->|action: check_logs| D1[(D1: http_logs)]
+    D1 -->|queried evidence rows| LLM
+    LLM -->|action: generate_waf_rule| RULE[WAF Rule JSON]
+    RULE --> KV[(KV: ACTIVE_BLOCKS)]
+    WF -->|step updates| DO
+    DO -->|broadcast status + rule| U
+    KV --> ENF[Enforcement Worker]
+    ENF -->|blocked IP/ASN => 403| TRAFFIC[Incoming Traffic]
+```
+
+### Investigation lifecycle (sequence)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as React UI
+    participant DO as InvestigationTicket
+    participant WF as InvestigationWorkflow
+    participant V as Vectorize
+    participant AI as Workers AI Llama 3.3
+    participant D1 as D1 http_logs
+    participant KV as KV ACTIVE_BLOCKS
+
+    U->>DO: WebSocket connect + symptom JSON
+    DO->>WF: create instance (ticketId, symptom)
+
+    WF->>V: embed symptom + query SOP vectors
+    V-->>WF: top matching procedures
+    WF->>DO: notify (RAG / workflow step)
+    DO-->>U: streamed event
+
+    loop Agent iterations (tool loop)
+        WF->>AI: next action JSON (symptom, SOP, optional logs)
+        AI-->>WF: check_logs | generate_waf_rule | ask_user
+        WF->>DO: notify (reasoning + action)
+        DO-->>U: streamed event
+
+        opt action = check_logs
+            WF->>D1: SQL (timeframe, keyword, ASN)
+            D1-->>WF: evidence rows
+            WF->>DO: notify (row count + summary)
+            DO-->>U: streamed event
+        end
+
+        opt action = ask_user
+            WF->>DO: notify (clarifying question)
+            DO-->>U: streamed event
+        end
+
+        opt action = generate_waf_rule
+            WF->>KV: put asn: / ip: block keys
+            WF->>DO: notify (final waf_rule)
+            DO-->>U: streamed event
+            Note over WF,U: workflow completes with rule + KV enforcement
+        end
+    end
+```
 
 ### Backend (`soc-agent/`)
 
@@ -106,12 +188,9 @@ npx wrangler deploy
 
 Use the same KV namespace IDs as in `soc-agent/wrangler.jsonc` so blocks written by the SOC agent are visible here.
 
-## Investigation flow (high level)
+## Investigation flow (summary)
 
-1. User submits a symptom over WebSocket.
-2. DO stores the ticket id and starts **InvestigationWorkflow**.
-3. Workflow retrieves **Vectorize** SOP context, then loops: **LLM** → optional **D1** `check_logs` with real rows → **WAF rule** from evidence + parameters → **KV** keys for enforcement.
-4. The DO streams each step back to the UI.
+Same pipeline as in [How tool calling finds malicious traffic](#how-tool-calling-finds-malicious-traffic): WebSocket symptom → **InvestigationWorkflow** → RAG → JSON **action** loop → optional **D1** queries → **WAF rule** + **KV** → streamed updates via the Durable Object.
 
 ## License
 

@@ -51,13 +51,19 @@ Generate a comprehensive README.md explaining the Agentic architecture, the ReAc
 
 Proceed with phase 1.
 
+___
+
 Proceed to phase 2
 
-Proceed to phase 3
+___
+
+Proceed to phase 3 use catpucchino mocha
+
+___
 
 Proceed to phase 4 & 5
 
----
+___
 
 Upgrade the backend "Large Prompt" to define a senior SOC Engineer persona with structured SOPs for triage, analysis, and mitigation.
 
@@ -82,6 +88,7 @@ Support standard HTTP requests for AI diagnostics (returning JSON test results).
 Add a Visual Status Page (HTML) to the Worker root to confirm system health and provide direct links.
 Implement a robust regex-based WebSocket handshake matcher to handle header variations at the Cloudflare edge.
 
+___
 
 Act as an expert Cloudflare developer. I need to refactor my Cloudflare AI SOC Agent application to move it from a simulated chatbot to a real, autonomous defense system using Cloudflare's latest primitives.
 
@@ -96,3 +103,14 @@ Cloudflare Workflows: Remove the rigid for loop in the Durable Object. Migrate t
 Active Enforcement via KV: Add a Cloudflare KV namespace (ACTIVE_BLOCKS). When the AI generates a final WAF rule, write the blocked IP/ASN to this KV. Provide a small reverse-proxy Worker snippet that checks this KV and returns a 403 Forbidden for blocked traffic.
 
 RAG with Vectorize (Memory): Add a Cloudflare Vectorize binding. When a user reports a symptom, perform a similarity search against a mock index of Security SOPs (Standard Operating Procedures) and inject the relevant SOP into the LLM's system prompt before generating the first action.
+
+___
+
+Update the README.md with a mermaid diagram.
+
+___
+
+yeah go ahead
+
+___ 
+
