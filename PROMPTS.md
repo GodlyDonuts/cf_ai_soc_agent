@@ -56,3 +56,43 @@ Proceed to phase 2
 Proceed to phase 3
 
 Proceed to phase 4 & 5
+
+---
+
+Upgrade the backend "Large Prompt" to define a senior SOC Engineer persona with structured SOPs for triage, analysis, and mitigation.
+
+Schema Expansion:
+
+Add severity (high/medium/low) and threat_type (SQLi, DDoS, etc.) to the AI output.
+Ensure these metadata parameters are broadcasted to the frontend in real-time.
+Implement a 3-attempt retry loop with exponential backoff for Workers AI calls to handle platform transient errors.
+
+Create an aesthetically pleasing macOS terminal with a Catppuccin Mocha theme.
+
+Component Requirements:
+
+Render threat intelligence metadata (Severity, Threat Type, ASN) as Pill-shaped Badges with Mocha-palette backgrounds.
+Add a Pulse Animation to the current status indicator to show the agent is "thinking."
+Implement a WAF Deployment View that visualizes the rule generation with a dedicated "DEPLOYED TO EDGE" badge and pulse effects.
+
+Implement a Dual-Purpose Worker:
+
+Support WebSocket upgrades for the Dashboard.
+Support standard HTTP requests for AI diagnostics (returning JSON test results).
+Add a Visual Status Page (HTML) to the Worker root to confirm system health and provide direct links.
+Implement a robust regex-based WebSocket handshake matcher to handle header variations at the Cloudflare edge.
+
+
+Act as an expert Cloudflare developer. I need to refactor my Cloudflare AI SOC Agent application to move it from a simulated chatbot to a real, autonomous defense system using Cloudflare's latest primitives.
+
+Please rewrite the provided codebase (Durable Object, Worker, and frontend) to implement the following architectural upgrades:
+
+Model Upgrade: Change the Workers AI model binding from Llama 3 8B to @cf/meta/llama-3.3-70b-instruct-fp8-fast for better tool-calling capabilities.
+
+Real Tool Calling with D1: Replace the hardcoded check_logs mock data. Add a Cloudflare D1 database binding, provide a schema for dummy HTTP logs, and update the code so the LLM dynamically queries this D1 database using parameters it generates.
+
+Cloudflare Workflows: Remove the rigid for loop in the Durable Object. Migrate the multi-step investigation logic (Triage -> Query Logs -> Generate Rule) into a Cloudflare Workflow. Keep the Durable Object strictly for handling the WebSocket connection and streaming state updates to the UI.
+
+Active Enforcement via KV: Add a Cloudflare KV namespace (ACTIVE_BLOCKS). When the AI generates a final WAF rule, write the blocked IP/ASN to this KV. Provide a small reverse-proxy Worker snippet that checks this KV and returns a 403 Forbidden for blocked traffic.
+
+RAG with Vectorize (Memory): Add a Cloudflare Vectorize binding. When a user reports a symptom, perform a similarity search against a mock index of Security SOPs (Standard Operating Procedures) and inject the relevant SOP into the LLM's system prompt before generating the first action.

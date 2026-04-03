@@ -140,6 +140,5 @@ dist-ssr/
 .wrangler/
 worker-configuration.d.ts
 
-.dev.vars*
-!.dev.vars.example
-!.env.example
+# Generated D1 bulk seed (regenerate with node scripts/generate-d1-seed.mjs)
+soc-agent/seed.sql

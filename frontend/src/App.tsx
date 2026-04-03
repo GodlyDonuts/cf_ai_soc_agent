@@ -20,15 +20,12 @@ export default function App() {
 
   const wsRef = useRef<WebSocket | null>(null)
 
-  const wsBaseUrl = useMemo(() => {
-    const configured = import.meta.env.VITE_BACKEND_WS_URL as
-      | string
-      | undefined
-    if (configured && configured.trim().length > 0) return configured
+  const wsBaseCandidates = useMemo(
+    () => ['wss://soc-agent.csramineni.workers.dev'],
+    [],
+  )
 
-    // Production default: deployed Worker URL
-    return 'wss://soc-agent.csramineni.workers.dev'
-  }, [])
+  const connectionTimeoutMs = 8000
 
   function closeWs() {
     const ws = wsRef.current
@@ -50,40 +47,71 @@ export default function App() {
     setErrorMessage(null)
 
     const ticketId = crypto.randomUUID()
-    const wsUrl = `${wsBaseUrl}/?ticketId=${encodeURIComponent(ticketId)}`
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
-
-    setStatus('connecting')
-
-    ws.onopen = () => {
-      setStatus('connected')
-      ws.send(JSON.stringify({ symptom: cleaned }))
+    const buildSocketUrl = (base: string) => {
+      const normalizedBase = base.replace(/\/+$/, '')
+      return `${normalizedBase}/?ticketId=${encodeURIComponent(ticketId)}`
     }
 
-    ws.onmessage = (event) => {
-      const parsed = (() => {
-        try {
-          return JSON.parse(event.data)
-        } catch {
-          return null
+    const connectToCandidate = (index: number) => {
+      if (index >= wsBaseCandidates.length) {
+        setStatus('error')
+        setErrorMessage(
+          `WebSocket connection failed for all endpoints. Set VITE_BACKEND_WS_URL to your Worker URL. Tried: ${wsBaseCandidates.join(
+            ', ',
+          )}`,
+        )
+        return
+      }
+
+      const wsUrl = buildSocketUrl(wsBaseCandidates[index])
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
+      setStatus('connecting')
+
+      let opened = false
+      const timeoutId = window.setTimeout(() => {
+        if (!opened && ws.readyState === WebSocket.CONNECTING) {
+          ws.close()
         }
-      })() as BackendEvent | null
+      }, connectionTimeoutMs)
 
-      if (!parsed || typeof parsed.step !== 'string') return
+      ws.onopen = () => {
+        opened = true
+        window.clearTimeout(timeoutId)
+        setStatus('connected')
+        ws.send(JSON.stringify({ symptom: cleaned }))
+      }
 
-      setEvents((prev) => [...prev, parsed])
-      if (parsed.waf_rule) setWafRule(parsed.waf_rule)
+      ws.onmessage = (event) => {
+        const parsed = (() => {
+          try {
+            return JSON.parse(event.data)
+          } catch {
+            return null
+          }
+        })() as BackendEvent | null
+
+        if (!parsed || typeof parsed.step !== 'string') return
+
+        setEvents((prev) => [...prev, parsed])
+        if (parsed.waf_rule) setWafRule(parsed.waf_rule)
+      }
+
+      ws.onerror = () => {
+        window.clearTimeout(timeoutId)
+      }
+
+      ws.onclose = () => {
+        window.clearTimeout(timeoutId)
+        if (opened) {
+          setStatus((s) => (s === 'error' ? s : 'closed'))
+          return
+        }
+        connectToCandidate(index + 1)
+      }
     }
 
-    ws.onerror = () => {
-      setStatus('error')
-      setErrorMessage('WebSocket error while running investigation.')
-    }
-
-    ws.onclose = () => {
-      setStatus((s) => (s === 'error' ? s : 'closed'))
-    }
+    connectToCandidate(0)
   }
 
   useEffect(() => {

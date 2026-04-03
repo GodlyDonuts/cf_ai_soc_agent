@@ -1,23 +1,60 @@
 {
-  "name": "soc-agent",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-04-03",
-  "ai": {
-    "binding": "AI"
-  },
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "INVESTIGATION_TICKET",
-        "class_name": "InvestigationTicket"
-      }
-    ]
-  },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["InvestigationTicket"]
-    }
-  ]
+	"name": "soc-agent",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-04-03",
+	"ai": {
+		"binding": "AI"
+	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "INVESTIGATION_TICKET",
+				"class_name": "InvestigationTicket"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"InvestigationTicket"
+			]
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "soc-logs",
+			"database_id": "b0b8bc3f-4d0f-4b21-afba-7369d2b424b3",
+			"migrations_dir": "migrations"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "ACTIVE_BLOCKS",
+			"id": "aefb51fec50d41a3a3b058afd6a45b11",
+			"preview_id": "1533ecb7124245bd837d4e9cc18493af"
+		}
+	],
+	"vectorize": [
+		{
+			"binding": "VECTORIZE",
+			"index_name": "soc-sop-index"
+		},
+		{
+			"binding": "VECTORIZE",
+			"index_name": "soc-sops",
+			"remote": true
+		}
+	],
+	"workflows": [
+		{
+			"binding": "INVESTIGATION_WORKFLOW",
+			"name": "soc-investigation",
+			"class_name": "InvestigationWorkflow"
+		}
+	],
+	"vars": {
+		"VITE_BACKEND_WS_URL": "wss://soc-agent.csramineni.workers.dev"
+	}
 }
-
